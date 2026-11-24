@@ -195,7 +195,7 @@ def render_view(img, box, disp_w, cal_pts, datasets, active_id, show_axes):
     disp_h = max(1, round((bottom - top) * s))
     view = img.crop(box).resize((disp_w, disp_h), Image.LANCZOS)
     d = ImageDraw.Draw(view)
-    font = get_font(14)
+    font = get_font(18)
 
     def to_view(p):
         return ((p[0] - left) * s, (p[1] - top) * s)
@@ -211,16 +211,16 @@ def render_view(img, box, disp_w, cal_pts, datasets, active_id, show_axes):
         p = cal_pts.get(k)
         if p:
             x, y = to_view(p)
-            r = 9
-            d.line([(x - r, y), (x + r, y)], fill=CAL_COLOR, width=2)
-            d.line([(x, y - r), (x, y + r)], fill=CAL_COLOR, width=2)
+            r = 11
+            d.line([(x - r, y), (x + r, y)], fill=CAL_COLOR, width=3)
+            d.line([(x, y - r), (x, y + r)], fill=CAL_COLOR, width=3)
             d.text((x + 6, y - 20), k, fill=CAL_COLOR, font=font,
                    stroke_width=2, stroke_fill=(255, 255, 255))
 
     # Data points; the active dataset is drawn last and slightly larger
     for ds in sorted(datasets, key=lambda ds: ds["id"] == active_id):
         col = hex_to_rgb(ds["color"])
-        r = 6 if ds["id"] == active_id else 4
+        r = 7 if ds["id"] == active_id else 5
         for p in ds["points"]:
             x, y = to_view(p)
             d.ellipse([x - r, y - r, x + r, y + r], fill=col, outline=(255, 255, 255), width=2)
@@ -336,7 +336,8 @@ def main():
         st.caption("Scientific notation like `1e-3` works.")
 
         st.header("View")
-        disp_w = st.slider("Display width (px)", 400, 1400, 800, 50)
+        disp_w = st.slider("Image sharpness (px)", 400, 1400, 700, 50,
+                           help="The image always fits the page; higher = sharper but smaller markers.")
         zoom = st.select_slider("Zoom", options=[1, 1.5, 2, 3, 4, 6, 8], value=1,
                                 help="Zoom in to click more precisely.")
         if zoom > 1:
@@ -411,22 +412,23 @@ def main():
             ds["name"] = new_name.strip()
             st.rerun()
 
-        b1, b2, b3, b4 = st.columns(4)
-        if b1.button("➕ New", use_container_width=True, help="Start a new dataset (new colour)"):
+        b1, b2 = st.columns(2)
+        b3, b4 = st.columns(2)
+        if b1.button("➕ New dataset", use_container_width=True, help="Start a new dataset (new colour)"):
             new_dataset()
             ss.pending_mode = "Add data points"
             st.rerun()
-        if b2.button("↶ Undo", use_container_width=True, disabled=not ds["points"],
+        if b2.button("↶ Undo point", use_container_width=True, disabled=not ds["points"],
                      help="Remove the last point of this dataset"):
             ds["points"].pop()
             ss.editor_ver += 1
             st.rerun()
-        if b3.button("🧹 Clear", use_container_width=True, disabled=not ds["points"],
+        if b3.button("🧹 Clear points", use_container_width=True, disabled=not ds["points"],
                      help="Remove all points of this dataset"):
             ds["points"].clear()
             ss.editor_ver += 1
             st.rerun()
-        if b4.button("🗑 Delete", use_container_width=True, help="Delete this dataset"):
+        if b4.button("🗑 Delete dataset", use_container_width=True, help="Delete this dataset"):
             ss.datasets = [d for d in ss.datasets if d["id"] != ds["id"]]
             if not ss.datasets:
                 new_dataset()
@@ -489,7 +491,8 @@ def main():
         box = zoom_box(W, H, zoom, cx, cy)
         view, scale = render_view(img, box, disp_w, ss.cal_pts, ss.datasets,
                                   ss.active_id, show_axes)
-        click = streamlit_image_coordinates(view, key="plot_click", cursor="crosshair")
+        click = streamlit_image_coordinates(view, key="plot_click", cursor="crosshair",
+                                            use_column_width="always")
         hint = ("Click to place " + ss.get("cal_target", "X1")) if mode == "Calibrate axes" \
             else f"Click to add a point to {active_ds()['name']}"
         st.caption(f"{hint} · zoom {zoom}×")
