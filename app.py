@@ -17,6 +17,7 @@ Run locally with:   uv run streamlit run app.py
 
 import csv
 import io
+from html import escape as html_escape
 import math
 
 import numpy as np
@@ -236,6 +237,41 @@ def zoom_box(W, H, zoom, cx, cy):
 
 
 # --------------------------------------------------------------------------
+# Styling (works in light and dark themes)
+# --------------------------------------------------------------------------
+CSS = """
+<style>
+.block-container {padding-top: 2rem; max-width: 1500px;}
+.pd-hero {background: linear-gradient(120deg, #1e3a8a 0%, #2563eb 55%, #0891b2 100%);
+  color: #fff; padding: 18px 24px; border-radius: 14px; margin-bottom: 12px;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, .25);}
+.pd-title {font-size: 1.75rem; font-weight: 700; line-height: 1.2;}
+.pd-sub {opacity: .92; margin-top: 4px; font-size: .95rem;}
+.pd-steps {display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 16px;}
+.pd-step {padding: 5px 14px; border-radius: 999px; font-size: .85rem;
+  border: 1px solid rgba(148, 163, 184, .5); opacity: .75;}
+.pd-step.done {background: rgba(34, 197, 94, .15); border-color: rgba(34, 197, 94, .6);
+  opacity: 1;}
+.pd-step.now {background: rgba(37, 99, 235, .15); border-color: rgba(37, 99, 235, .8);
+  font-weight: 600; opacity: 1;}
+.pd-card-title {font-weight: 700; font-size: 1.05rem; margin-bottom: 6px;}
+.pd-side-h {font-weight: 700; font-size: 1.1rem; margin: 4px 0 6px;}
+.pd-hint {display: flex; justify-content: space-between; align-items: center;
+  font-size: .95rem; margin-bottom: 8px;}
+.pd-hint span {font-size: .8rem; opacity: .65;}
+.pd-legend {display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;}
+.pd-chip {display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
+  border-radius: 999px; font-size: .82rem; background: rgba(148, 163, 184, .15);
+  border: 1px solid transparent;}
+.pd-chip.active {border-color: rgba(37, 99, 235, .8); font-weight: 600;}
+.pd-dot {width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .8);}
+.pd-how-icon {font-size: 1.8rem;}
+</style>
+"""
+
+
+# --------------------------------------------------------------------------
 # App
 # --------------------------------------------------------------------------
 def main():
@@ -279,30 +315,56 @@ def main():
         if ss.get(pend):
             ss[key] = ss.pop(pend)
 
-    # ---------- header ----------
-    st.title("📈 Plot Digitizer")
-    st.caption("Extract x-y data from an image of a graph: upload → calibrate the axes → "
-               "click your data → download a CSV.")
+    # ---------- look and feel ----------
+    st.markdown(CSS, unsafe_allow_html=True)
 
-    # ---------- sidebar: upload, axes, view ----------
+    def hero():
+        st.markdown(
+            "<div class='pd-hero'><div class='pd-title'>📈 Plot Digitizer</div>"
+            "<div class='pd-sub'>Turn a picture of a graph back into numbers: upload it, "
+            "calibrate the axes, click the data, download a CSV.</div></div>",
+            unsafe_allow_html=True)
+
+    def stepper(done):
+        """done: list of 4 booleans for Upload, Calibrate, Digitize, Export."""
+        labels = ["1 · Upload", "2 · Calibrate", "3 · Digitize", "4 · Export"]
+        first_open = next((i for i, d in enumerate(done) if not d), None)
+        html = []
+        for i, (lab, d) in enumerate(zip(labels, done)):
+            cls = "done" if d else ("now" if i == first_open else "")
+            html.append(f"<span class='pd-step {cls}'>{'✓ ' if d else ''}{lab}</span>")
+        st.markdown(f"<div class='pd-steps'>{''.join(html)}</div>", unsafe_allow_html=True)
+
+    def card_title(icon, text):
+        st.markdown(f"<div class='pd-card-title'>{icon} {text}</div>", unsafe_allow_html=True)
+
+    # ---------- sidebar: upload ----------
     with st.sidebar:
-        st.header("1 · Upload image")
+        st.markdown("<div class='pd-side-h'>📁 Image</div>", unsafe_allow_html=True)
         up = st.file_uploader("Graph image", type=["png", "jpg", "jpeg", "gif", "tif", "tiff", "bmp"],
-                              help="Colour or greyscale PNG, JPG, GIF or TIFF.")
+                              help="Colour or greyscale PNG, JPG, GIF or TIFF.",
+                              label_visibility="collapsed")
+
+    hero()
 
     if up is None:
-        st.info("👈 Start by uploading an image of a plot in the sidebar "
+        stepper([False, False, False, False])
+        st.info("👈 **Start by uploading an image of a plot** in the sidebar "
                 "(PNG, JPG, GIF or TIFF; colour or greyscale).")
-        with st.expander("How does this work?", expanded=True):
-            st.markdown(
-                "1. **Upload** a picture or scan of a graph.\n"
-                "2. **Calibrate**: click two labelled ticks on the x-axis (**X1**, **X2**) and two on "
-                "the y-axis (**Y1**, **Y2**), then type what values they are. Tick *Log scale* for log "
-                "axes. Rotated scans are fine: the axes are taken from your clicks.\n"
-                "3. **Digitize**: switch to *Add data points* and click on each point of a curve. "
-                "Make a new dataset for each curve.\n"
-                "4. **Export**: name your axes and download the CSV."
-            )
+        cols = st.columns(4)
+        how = [
+            ("📁", "Upload", "A screenshot, photo or scan of a graph. Crooked scans are fine."),
+            ("🎯", "Calibrate", "Click two labelled ticks on each axis (X1, X2, Y1, Y2) and type "
+                               "their values. Tick *Log* for log axes."),
+            ("🖱️", "Digitize", "Click each data point. Make a new dataset, with its own colour, "
+                              "for each curve."),
+            ("⬇️", "Export", "Name your axes and download everything as one CSV file."),
+        ]
+        for col, (icon, title, text) in zip(cols, how):
+            with col.container(border=True):
+                st.markdown(f"<div class='pd-how-icon'>{icon}</div>", unsafe_allow_html=True)
+                st.markdown(f"**{title}**")
+                st.caption(text)
         st.stop()
 
     img_id = f"{up.name}-{up.size}"
@@ -316,12 +378,16 @@ def main():
     img = ss.img
     W, H = img.size
 
+    # ---------- sidebar: axes and view ----------
     with st.sidebar:
         st.caption(f"{up.name} · {W}×{H} px")
+        st.divider()
 
-        st.header("2 · Axes")
-        xlabel = st.text_input("X-axis label", value="x", key="xlabel")
-        ylabel = st.text_input("Y-axis label", value="y", key="ylabel")
+        st.markdown("<div class='pd-side-h'>📐 Axes</div>", unsafe_allow_html=True)
+        xlabel = st.text_input("X-axis label", value="x", key="xlabel",
+                               placeholder="e.g. Time (s)")
+        ylabel = st.text_input("Y-axis label", value="y", key="ylabel",
+                               placeholder="e.g. Voltage (V)")
 
         st.markdown("**Calibration values**")
         c1, c2 = st.columns(2)
@@ -334,10 +400,9 @@ def main():
         xlog = c1.checkbox("Log x-axis", key="xlog")
         ylog = c2.checkbox("Log y-axis", key="ylog")
         st.caption("Scientific notation like `1e-3` works.")
+        st.divider()
 
-        st.header("View")
-        disp_w = st.slider("Image sharpness (px)", 400, 1400, 700, 50,
-                           help="The image always fits the page; higher = sharper but smaller markers.")
+        st.markdown("<div class='pd-side-h'>🔍 View</div>", unsafe_allow_html=True)
         zoom = st.select_slider("Zoom", options=[1, 1.5, 2, 3, 4, 6, 8], value=1,
                                 help="Zoom in to click more precisely.")
         if zoom > 1:
@@ -345,7 +410,11 @@ def main():
             cy = st.slider("Pan top ↕ bottom", 0.0, 1.0, 0.5, 0.01)
         else:
             cx = cy = 0.5
-        show_axes = st.checkbox("Show calibration axis lines", value=True)
+        with st.expander("More view options"):
+            disp_w = st.slider("Image sharpness (px)", 400, 1400, 700, 50,
+                               help="The image always fits the page; higher = sharper but "
+                                    "smaller markers.")
+            show_axes = st.checkbox("Show calibration axis lines", value=True)
 
     # ---------- calibration object ----------
     cal, cal_error = None, None
@@ -357,145 +426,157 @@ def main():
             cal_error = str(e) if "could not convert" not in str(e) else \
                 "Calibration values must be numbers."
 
+    n_cal = sum(v is not None for v in ss.cal_pts.values())
+    n_pts = sum(len(ds["points"]) for ds in ss.datasets)
+    stepper([True, bool(cal), n_pts > 0, bool(cal) and n_pts > 0])
+
     # ---------- main layout ----------
     left_col, right_col = st.columns([3, 2], gap="large")
 
     with right_col:
-        # Step indicator
-        n_cal = sum(v is not None for v in ss.cal_pts.values())
-        n_pts = sum(len(ds["points"]) for ds in ss.datasets)
-        st.markdown(
-            "✅ Image &nbsp;·&nbsp; "
-            f"{'✅' if cal else '⬜'} Calibrated ({n_cal}/4) &nbsp;·&nbsp; "
-            f"{'✅' if n_pts else '⬜'} {n_pts} point(s)"
-        )
+        # ---- click mode ----
+        with st.container(border=True):
+            card_title("🎯", "Click mode")
+            mode = st.radio("What does a click do?", ["Calibrate axes", "Add data points"],
+                            key="mode", horizontal=True, label_visibility="collapsed")
 
-        mode = st.radio("What does a click do?", ["Calibrate axes", "Add data points"],
-                        key="mode", horizontal=True)
-
-        if mode == "Calibrate axes":
-            target = st.radio("Next click sets", CAL_KEYS, key="cal_target", horizontal=True,
-                              format_func=lambda k: f"{k} {'✓' if ss.cal_pts[k] else ''}")
-            st.info(f"Click on **{target}**: {CAL_HELP[target]}. "
-                    f"Then enter its value in the sidebar.")
-            if st.button("Reset calibration points"):
-                ss.cal_pts = {k: None for k in CAL_KEYS}
-                ss.pending_cal_target = "X1"
-                st.rerun()
-        else:
-            if not cal:
+            if mode == "Calibrate axes":
+                target = st.radio("Next click sets", CAL_KEYS, key="cal_target", horizontal=True,
+                                  format_func=lambda k: f"{k} {'✓' if ss.cal_pts[k] else ''}")
+                st.info(f"Click on **{target}**: {CAL_HELP[target]}. "
+                        f"Then enter its value in the sidebar.")
+                st.caption(f"{n_cal} of 4 calibration points placed")
+                if st.button("↺ Reset calibration points", use_container_width=True):
+                    ss.cal_pts = {k: None for k in CAL_KEYS}
+                    ss.pending_cal_target = "X1"
+                    st.rerun()
+            elif not cal:
                 st.warning("Axes aren't calibrated yet. You can still click points, but values "
                            "will only appear once calibration is done.")
 
-        if cal_error:
-            st.error(cal_error)
-        elif cal and abs(cal.rotation_deg) > 0.3:
-            st.caption(f"↻ Detected axis rotation: {cal.rotation_deg:.1f}° (corrected automatically)")
+            if cal_error:
+                st.error(cal_error)
+            elif cal:
+                msg = "Axes calibrated"
+                if abs(cal.rotation_deg) > 0.3:
+                    msg += f" · rotation of {cal.rotation_deg:.1f}° corrected"
+                st.success(msg, icon="✅")
 
         # ---- datasets ----
-        st.subheader("Datasets")
-        ids = [ds["id"] for ds in ss.datasets]
-        names = {ds["id"]: ds["name"] for ds in ss.datasets}
-        colors = {ds["id"]: ds["color"] for ds in ss.datasets}
-        counts = {ds["id"]: len(ds["points"]) for ds in ss.datasets}
-        sel = st.selectbox("Active dataset (clicks go here)", ids, index=ids.index(ss.active_id),
-                           format_func=lambda i: f"● {names[i]} ({counts[i]} pts)")
-        if sel != ss.active_id:
-            ss.active_id = sel
-            ss.editor_ver += 1
-        ds = active_ds()
-        st.markdown(f"<span style='color:{ds['color']};font-size:1.4em'>●</span> "
-                    f"colour of **{ds['name']}**", unsafe_allow_html=True)
+        with st.container(border=True):
+            card_title("🗂️", "Datasets")
+            ids = [ds["id"] for ds in ss.datasets]
+            names = {ds["id"]: ds["name"] for ds in ss.datasets}
+            counts = {ds["id"]: len(ds["points"]) for ds in ss.datasets}
+            sel = st.selectbox("Active dataset (clicks go here)", ids, index=ids.index(ss.active_id),
+                               format_func=lambda i: f"{names[i]} ({counts[i]} pts)")
+            if sel != ss.active_id:
+                ss.active_id = sel
+                ss.editor_ver += 1
+            ds = active_ds()
 
-        new_name = st.text_input("Dataset name", value=ds["name"], key=f"name_{ds['id']}")
-        if new_name.strip() and new_name != ds["name"]:
-            ds["name"] = new_name.strip()
-            st.rerun()
+            new_name = st.text_input("Name", value=ds["name"], key=f"name_{ds['id']}")
+            if new_name.strip() and new_name != ds["name"]:
+                ds["name"] = new_name.strip()
+                st.rerun()
 
-        b1, b2 = st.columns(2)
-        b3, b4 = st.columns(2)
-        if b1.button("➕ New dataset", use_container_width=True, help="Start a new dataset (new colour)"):
-            new_dataset()
-            ss.pending_mode = "Add data points"
-            st.rerun()
-        if b2.button("↶ Undo point", use_container_width=True, disabled=not ds["points"],
-                     help="Remove the last point of this dataset"):
-            ds["points"].pop()
-            ss.editor_ver += 1
-            st.rerun()
-        if b3.button("🧹 Clear points", use_container_width=True, disabled=not ds["points"],
-                     help="Remove all points of this dataset"):
-            ds["points"].clear()
-            ss.editor_ver += 1
-            st.rerun()
-        if b4.button("🗑 Delete dataset", use_container_width=True, help="Delete this dataset"):
-            ss.datasets = [d for d in ss.datasets if d["id"] != ds["id"]]
-            if not ss.datasets:
+            b1, b2 = st.columns(2)
+            b3, b4 = st.columns(2)
+            if b1.button("➕ New", use_container_width=True, type="primary",
+                         help="Start a new dataset (new colour)"):
                 new_dataset()
-            ss.active_id = ss.datasets[-1]["id"]
-            ss.editor_ver += 1
-            st.rerun()
+                ss.pending_mode = "Add data points"
+                st.rerun()
+            if b2.button("↶ Undo", use_container_width=True, disabled=not ds["points"],
+                         help="Remove the last point of this dataset"):
+                ds["points"].pop()
+                ss.editor_ver += 1
+                st.rerun()
+            if b3.button("🧹 Clear", use_container_width=True, disabled=not ds["points"],
+                         help="Remove all points of this dataset"):
+                ds["points"].clear()
+                ss.editor_ver += 1
+                st.rerun()
+            if b4.button("🗑 Delete", use_container_width=True, help="Delete this dataset"):
+                ss.datasets = [d for d in ss.datasets if d["id"] != ds["id"]]
+                if not ss.datasets:
+                    new_dataset()
+                ss.active_id = ss.datasets[-1]["id"]
+                ss.editor_ver += 1
+                st.rerun()
 
         # ---- live editable table (bonus) ----
-        st.subheader(f"Points in “{ds['name']}”")
-        if cal:
-            data = [cal.to_data(p) for p in ds["points"]]
-            df = pd.DataFrame(data, columns=["x", "y"], dtype=float)
-            edited = st.data_editor(
-                df, num_rows="dynamic", use_container_width=True, hide_index=False,
-                key=f"editor_{ds['id']}_{ss.editor_ver}",
-                column_config={
-                    "x": st.column_config.NumberColumn(xlabel or "x", format="%.6g"),
-                    "y": st.column_config.NumberColumn(ylabel or "y", format="%.6g"),
-                },
-            )
-            st.caption("Edit a value, add a row, or select rows and delete them; "
-                       "the marks on the plot follow.")
-            edited = edited.reset_index(drop=True)
-            if not edited.equals(df):
-                new_pts, bad = [], 0
-                for x, y in edited[["x", "y"]].itertuples(index=False):
-                    if pd.isna(x) or pd.isna(y):
-                        continue  # half-filled new row; wait for both values
-                    try:
-                        new_pts.append(cal.to_pixel(float(x), float(y)))
-                    except (ValueError, OverflowError):
-                        bad += 1
-                complete = edited[["x", "y"]].notna().all(axis=1).all()
-                if bad:
-                    st.warning(f"{bad} row(s) can't be shown on a log axis (values must be > 0).")
-                elif complete or len(new_pts) != len(ds["points"]):
-                    ds["points"] = new_pts
-                    ss.editor_ver += 1
-                    st.rerun()
-        else:
-            st.caption("The table appears once the axes are calibrated.")
+        with st.container(border=True):
+            card_title("📋", f"Points in “{ds['name']}”")
+            if cal:
+                data = [cal.to_data(p) for p in ds["points"]]
+                df = pd.DataFrame(data, columns=["x", "y"], dtype=float)
+                edited = st.data_editor(
+                    df, num_rows="dynamic", use_container_width=True, hide_index=False,
+                    key=f"editor_{ds['id']}_{ss.editor_ver}", height=260,
+                    column_config={
+                        "x": st.column_config.NumberColumn(xlabel or "x", format="%.6g"),
+                        "y": st.column_config.NumberColumn(ylabel or "y", format="%.6g"),
+                    },
+                )
+                st.caption("Edit a value, add a row, or select rows and delete them; "
+                           "the marks on the plot follow.")
+                edited = edited.reset_index(drop=True)
+                if not edited.equals(df):
+                    new_pts, bad = [], 0
+                    for x, y in edited[["x", "y"]].itertuples(index=False):
+                        if pd.isna(x) or pd.isna(y):
+                            continue  # half-filled new row; wait for both values
+                        try:
+                            new_pts.append(cal.to_pixel(float(x), float(y)))
+                        except (ValueError, OverflowError):
+                            bad += 1
+                    complete = edited[["x", "y"]].notna().all(axis=1).all()
+                    if bad:
+                        st.warning(f"{bad} row(s) can't be shown on a log axis (values must be > 0).")
+                    elif complete or len(new_pts) != len(ds["points"]):
+                        ds["points"] = new_pts
+                        ss.editor_ver += 1
+                        st.rerun()
+            else:
+                st.caption("The table appears once the axes are calibrated.")
 
         # ---- export ----
-        st.subheader("3 · Export")
-        if not cal:
-            st.caption("Calibrate the axes to enable the download.")
-        elif n_pts == 0:
-            st.caption("Click some data points to enable the download.")
-        else:
-            sort_x = st.checkbox("Sort each dataset by x", value=False)
-            exportable = [d for d in ss.datasets if d["points"]]
-            csv_text = build_csv(exportable, cal, xlabel, ylabel, sort_x)
-            st.download_button("⬇️ Download CSV", csv_text, file_name="digitized_data.csv",
-                               mime="text/csv", type="primary", use_container_width=True)
-            with st.expander("Preview CSV"):
-                st.code(csv_text, language=None)
+        with st.container(border=True):
+            card_title("⬇️", "Export")
+            if not cal:
+                st.caption("Calibrate the axes to enable the download.")
+            elif n_pts == 0:
+                st.caption("Click some data points to enable the download.")
+            else:
+                sort_x = st.checkbox("Sort each dataset by x", value=False)
+                exportable = [d for d in ss.datasets if d["points"]]
+                csv_text = build_csv(exportable, cal, xlabel, ylabel, sort_x)
+                st.download_button("⬇️ Download CSV", csv_text, file_name="digitized_data.csv",
+                                   mime="text/csv", type="primary", use_container_width=True)
+                with st.expander("Preview CSV"):
+                    st.code(csv_text, language=None)
 
     # ---------- image + clicks ----------
     with left_col:
-        box = zoom_box(W, H, zoom, cx, cy)
-        view, scale = render_view(img, box, disp_w, ss.cal_pts, ss.datasets,
-                                  ss.active_id, show_axes)
-        click = streamlit_image_coordinates(view, key="plot_click", cursor="crosshair",
-                                            use_column_width="always")
-        hint = ("Click to place " + ss.get("cal_target", "X1")) if mode == "Calibrate axes" \
-            else f"Click to add a point to {active_ds()['name']}"
-        st.caption(f"{hint} · zoom {zoom}×")
+        with st.container(border=True):
+            if mode == "Calibrate axes":
+                hint = f"🎯 Click to place <b>{ss.get('cal_target', 'X1')}</b>"
+            else:
+                hint = (f"🖱️ Click to add a point to <b>{html_escape(active_ds()['name'])}</b>")
+            st.markdown(f"<div class='pd-hint'>{hint}<span>zoom {zoom}×</span></div>",
+                        unsafe_allow_html=True)
+            box = zoom_box(W, H, zoom, cx, cy)
+            view, scale = render_view(img, box, disp_w, ss.cal_pts, ss.datasets,
+                                      ss.active_id, show_axes)
+            click = streamlit_image_coordinates(view, key="plot_click", cursor="crosshair",
+                                                use_column_width="always")
+            chips = "".join(
+                f"<span class='pd-chip{' active' if d['id'] == ss.active_id else ''}'>"
+                f"<span class='pd-dot' style='background:{d['color']}'></span>"
+                f"{html_escape(d['name'])} · {len(d['points'])}</span>"
+                for d in ss.datasets)
+            st.markdown(f"<div class='pd-legend'>{chips}</div>", unsafe_allow_html=True)
 
     # Process a new click (each click is processed exactly once)
     if click:
